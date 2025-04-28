@@ -15,7 +15,7 @@ This project builds an AI-powered pentesting assistant for Hack The Box Acadmey 
 ## Setup Steps
 ### 1. Parrot OS VM Configuration
 - **Installation**: 
-  -[Installed Parrot OS **Hack The Box** edition on VirtualBox](https://help.hackthebox.com/en/articles/6369713-installing-parrot-security-on-a-vm) with the following settings:
+  -[Install Parrot OS Hack The Box edition on VirtualBox](https://help.hackthebox.com/en/articles/6369713-installing-parrot-security-on-a-vm) with the following settings:
     - Type: Linux, Debian (64-bit).
     - Memory: 4GB (minimum 2GB).
     - Storage: 20GB dynamic disk.
@@ -33,6 +33,7 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
 - **Connect to Hack The Box VPN**: 
   - **Purpose**: Connect the VM to the HTB network to assign it an HTB IP (e.g., `10.10.14.7`) for challenge access.
   - **Steps**:
+  
   1. Sign up for an HTB account at `hackthebox.com`.
   2. In the VM, download your OpenVPN configuration file (e.g., `academy-regular.ovpn`) from `https://academy.hackthebox.com/vpn` using a browser (e.g., Firefox in Parrot OS).
   3. Install OpenVPN in the VM:
@@ -68,16 +69,16 @@ sudo systemctl status ssh
   _Note_: Take note of the passphrase you entered. 
   2. Copy the Public Key to the VM: `ssh-copy-id -i ~/.ssh/id_rsa.pub user@<your-vm-ip>`
   3. Configure the VM to Allow Key-Based Authentication:
-    - On the VM, edit the SSH configuration file: `sudo nano /etc/ssh/sshd_config`
-    - Find the line that says **PasswordAuthentication** and change its value to no.
-    - Save the file and restart the SSH service: `sudo systemctl restart ssh`
+      - On the VM, edit the SSH configuration file: `sudo nano /etc/ssh/sshd_config`
+      - Find the line that says **PasswordAuthentication** and change its value to no.
+      - Save the file and restart the SSH service: `sudo systemctl restart ssh`
 
 - **Verification**: 
-  - Tested SSH from the host:
+    - Tested SSH from the host:
 ```bash
 ssh user@<your-vm-ip>
 ```
-  - Confirmed VPN connectivity:
+    - Confirmed VPN connectivity:
 ```bash
 ping 10.10.14.7  # HTB network IP
 ```
