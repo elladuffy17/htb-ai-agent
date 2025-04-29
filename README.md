@@ -65,9 +65,10 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
     ```
     - Configure Key-Based Authentication between VM and host machine:
         1. Generate a SSH Key Pair on host machine: `ssh-keygen -t rsa`
-        _Note_: Take note of the passphrase you entered. 
-        2. Copy the Public Key to the VM: `ssh-copy-id -i ~/.ssh/id_rsa.pub user@<your-vm-ip>`
-        3. Configure the VM to Allow Key-Based Authentication:
+        _Note_: Take note of the passphrase you entered.
+        2. Ensured ~/.ssh/id_rsa has correct permissions: `chmod 600 ~/.ssh/id_rsa`
+        3. Copy the Public Key to the VM: `ssh-copy-id -i ~/.ssh/id_rsa.pub user@<your-vm-ip>`
+        4. Configure the VM to Allow Key-Based Authentication:
             - On the VM, edit the SSH configuration file: `sudo nano /etc/ssh/sshd_config`
             - Find the line that says **PasswordAuthentication** and change its value to no.
              - Save the file and restart the SSH service: `sudo systemctl restart ssh`
@@ -85,3 +86,61 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
 *Screenshot: Parrot OS VM configuration validation.*
 
 ### 2. Docker and Open WebUI Setup
+- **Prerequisites**: Installed Docker Desktop (docker.com) on your host machine, and ensure Docker is running:
+  ```bash
+  docker --version
+  # Expect: Docker version 20.x or higher
+  ```
+- **Docker Container**: Launch the Open WebUI container using the following command, which configures networking, mounts directories, and loads environment variables:
+  ```bash
+  docker run -d \
+  -p 3000:8080 \
+  -v ~/Ella_AI/HTB:/app/backend/tools \
+  -v ~/.ssh/id_rsa:/app/tools/id_rsa:ro \
+  -v ~/Ella_AI/logs:/app/logs \
+  --env-file ~/Ella_AI/.env \
+  --name open-webui \
+  ghcr.io/open-webui/open-webui:main
+  ```
+  **Command Breakdown**:
+  - `-d`: Runs the container in detached mode, allowing it to operate in the background without occupying your terminal.
+  - `-p 3000:8080`: Maps port `3000` on your host machine to port `8080` inside the container, enabling access to Open WebUI at `http://localhost:3000`. Port `8080` is the default for Open WebUI’s web interface.
+  - `-v ~/Ella_AI/HTB:/app/backend/tools`: Mounts the `~/Ella_AI/HTB directory` (contains my tool `ssh_command_executor.py`) from your host to `/app/backend/tools` in the container, making the Python script available as a tool for Open WebUI.
+  - `-v ~/.ssh/id_rsa:/app/tools/id_rsa:ro`: Mounts your SSH private key (`~/.ssh/id_rsa`) to `/app/tools/id_rsa` in the container in **read-only** mode (`:ro`), allowing `ssh_command_executor.py` to use it for SSH authentication to the VM (e.g., `10.0.0.215`).
+  - `-v ~/Ella_AI/logs:/app/logs`: Mounts the `~/Ella_AI/logs` directory to `/app/logs` in the container, storing logs (e.g., `ssh_executor.log`) from `ssh_command_executor.py` on your host for debugging.
+  - `--env-file ~/Ella_AI/.env`: Loads environment variables from `~/Ella_AI/.env` (e.g., `SSH_PASSPHRASE`, `OPENAI_API_KEY`) into the container, securely passing sensitive data without hardcoding.
+  - `--name open-webui`: Assigns the name `open-webui` to the container for easy management (e.g., `docker stop open-webui`).
+  - `ghcr.io/open-webui/open-webui:main`: Specifies the Docker image from GitHub Container Registry, using the `main` tag for the latest stable Open WebUI version.
+- **.env File**: Create ~/Ella_AI/.env with the following content:
+  ```plain
+  SSH_PASSPHRASE=<your-passphrase>
+  OLLAMA_BASE_URL=http://host.docker.internal:11434
+  OPENAI_API_KEY=sk-xxx
+  ```
+  _Note_: Replace `<your-passphrase>` with your SSH key passphrase and `sk-xxx` with your OpenAI API key from `platform.openai.com`. Ensure .env is excluded from version control via .gitignore.
+- **Verification**:
+    - Check container status:
+      ```bash
+      docker ps
+      # Expect: Container named 'open-webui' with ports 0.0.0.0:3000->8080/tcp
+      ```
+    - Confirm mounted files:
+      ```bash
+      docker exec open-webui ls /app/backend/tools/ssh_command_executor.py
+      docker exec open-webui ls /app/tools/id_rsa
+      ```
+    - Access Open WebUI at `http://localhost:3000` in a browser.
+    - Verify logs directory:
+      ```bash
+      ls ~/Ella_AI/logs
+      # Expect: ssh_executor.log (created after first command execution)
+      ```
+  _Note_: If the container fails to start, check Docker logs:
+  ```bash
+  docker logs open-webui
+  ```
+
+### 3. SSH Command Executor Tool
+- **Implementation**: Created `ssh_command_executor.py` to execute VM commands, logging to `/app/logs/ssh_executor.log`. Handles stdout/stderr and prepends PATH so we can access commands like `ifconfig`.
+
+### 4. Open WebUI Integration
