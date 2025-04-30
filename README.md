@@ -145,26 +145,26 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
 
 ### 4. Open WebUI Integration
 - **Tool Setup**: Added the `ssh_execute_command tool` in Open WebUI using the web interface:
-1. Navigated to `http://localhost:3000` > Workspace > Tools.
-2. Clicked the `+` button to create a new tool.
-3. Filled in the tool details:
-    - **Tool Name**: `SSH Command Executor`
-    - **Tool ID**: `ssh_command_executor`
-    - **Tool Description**: `Executes commands on my remote HTB Parrot OS VM and returns the output, with logging.`
-4. Pasted the contents of `ssh_command_executor.py` directly into the tool’s code editor.
-5. Saved the tool. 
+    1. Navigated to `http://localhost:3000` > Workspace > Tools.
+    2. Clicked the `+` button to create a new tool.
+    3. Filled in the tool details:
+        - **Tool Name**: `SSH Command Executor`
+        - **Tool ID**: `ssh_command_executor`
+        - **Tool Description**: `Executes commands on my remote HTB Parrot OS VM and returns the output, with logging.`
+    4. Pasted the contents of `ssh_command_executor.py` directly into the tool’s code editor.
+    5. Saved the tool. 
 ![Tool Integration](images/tool-integration.png)
 *Screenshot: Open WebUI Tools page showing the setup of the SSH Command Executor tool.*
 
 - **Model Setup**: Configured the AI model in Open WebUI to work with the tool:
-1. Navigated to `http://localhost:3000` > Workspace > Models.
-2. Created a new model named `HTB AI`.
-3. Selected `gpt-4o-mini` (OpenAI API) as the model, using the API key added to .env:
-4. Set the system prompt in the model’s settings:
-```
-You are an AI assistant for Hack The Box pentesting. When asked to run a command on the HTB VM, use the ssh_execute_command tool   with host='<your-vm-ip>' and username='user'. Return only the exact output of the command, with no additional text, variable names, or logs. For example, if the command is 'whoami', return only 'user'.
-```
-5. Saved the model as the default for the workspace. _Note_: Upgraded from `llama3-groq-tool-use:8b` (via Ollama) due to slow responses (~5s). `gpt-4o-mini` provides faster responses (<1s), critical for HTB challenges. 
+    1. Navigated to `http://localhost:3000` > Workspace > Models.
+    2. Created a new model named `HTB AI`.
+    3. Selected `gpt-4o-mini` (OpenAI API) as the model, using the API key added to .env:
+    4. Set the system prompt in the model’s settings:
+    ```
+    You are an AI assistant for Hack The Box pentesting. When asked to run a command on the HTB VM, use the ssh_execute_command tool   with host='<your-vm-ip>' and username='user'. Return only the exact output of the command, with no additional text, variable names, or logs. For example, if the command is 'whoami', return only 'user'.
+    ```
+    5. Saved the model as the default for the workspace. _Note_: Upgraded from `llama3-groq-tool-use:8b` (via Ollama) due to slow responses (~5s). `gpt-4o-mini` provides faster responses (<1s), critical for HTB challenges. 
 ![Model Settings](images/model-settings.png)
 *Screenshot: Open WebUI settings with gpt-4o-mini selected for the HTB AI model.*
 
