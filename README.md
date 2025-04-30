@@ -144,33 +144,33 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
 - **Implementation**: Created `ssh_command_executor.py` to execute commands on the VM using `paramiko` for secure SSH connections, logging all actions to `/app/logs/ssh_executor.log`. The script handles stdout and stderr for accurate command outputs (e.g., `bash: fakecommand: command not found`) and prepends PATH for commands like `ifconfig` to ensure accessibility. See the full code in ssh_command_executor.py.
 
 ### 4. Open WebUI Integration
-- Tool Setup: Added the ssh_execute_command tool in Open WebUI using the web interface:
-1. Navigated to http://localhost:3000 > Workspace > Tools.
-2. Clicked the + button to create a new tool.
-3. Filled in the tool details:
-- Tool Name: SSH Command Executor
-- Tool ID: ssh_command_executor
-- Tool Description: Executes commands on my remote HTB Parrot OS VM and returns the output, with logging.
-4. Pasted the contents of ssh_command_executor.py directly into the tool’s code editor.
-5. Saved the tool. 
+- **Tool Setup**: Added the `ssh_execute_command tool` in Open WebUI using the web interface:
+    1. Navigated to `http://localhost:3000` > Workspace > Tools.
+    2. Clicked the `+` button to create a new tool.
+    3. Filled in the tool details:
+        - **Tool Name**: `SSH Command Executor`
+        - **Tool ID**: `ssh_command_executor`
+        - **Tool Description**: `Executes commands on my remote HTB Parrot OS VM and returns the output, with logging.`
+    4. Pasted the contents of `ssh_command_executor.py` directly into the tool’s code editor.
+    5. Saved the tool. 
 ![Tool Integration](images/tool-integration.png)
-Screenshot: Open WebUI Tools page showing the setup of the SSH Command Executor tool.
+*Screenshot: Open WebUI Tools page showing the setup of the SSH Command Executor tool.*
 
-- Model Setup: Configured the AI model in Open WebUI to work with the tool:
-1. Navigated to http://localhost:3000 > Workspace > Models.
-2. Created a new model named HTB AI.
-3. Selected gpt-4o-mini (OpenAI API) as the model, using the API key added to .env:
-_Note_: Obtain your OpenAI API key from platform.openai.com if not already added to .env.
-4. Set the system prompt in the model’s settings:
-```
-You are an AI assistant for Hack The Box pentesting. When asked to run a command on the HTB VM, use the ssh_execute_command tool with host='<your-vm-ip>' and username='user'. Return only the exact output of the command, with no additional text, variable names, or logs. For example, if the command is 'whoami', return only 'user'.
-```
-5. Saved the model as the default for the workspace. Note: Upgraded from llama3-groq-tool-use:8b (via Ollama) due to slow responses (~3s). gpt-4o-mini provides faster responses (<1s), critical for HTB challenges. 
+- **Model Setup**: Configured the AI model in Open WebUI to work with the tool:
+    1. Navigated to `http://localhost:3000` > Workspace > Models.
+    2. Created a new model named `HTB AI`.
+    3. Selected `gpt-4o-mini` (OpenAI API) as the model, using the API key added to .env:
+    4. Set the system prompt in the model’s settings:
+    ```
+    You are an AI assistant for Hack The Box pentesting. When asked to run a command on the HTB VM, use the ssh_execute_command tool   with host='<your-vm-ip>' and username='user'. Return only the exact output of the command, with no additional text, variable names, or logs. For example, if the command is 'whoami', return only 'user'.
+    ```
+5. Saved the model as the default for the workspace. _Note_: Upgraded from `llama3-groq-tool-use:8b` (via Ollama) due to slow responses (~5s). `gpt-4o-mini` provides faster responses (<1s), critical for HTB challenges. 
 ![Model Settings](images/model-settings.png)
+*Screenshot: Open WebUI settings with gpt-4o-mini selected for the HTB AI model.*
 
-- Testing:
-    - Prompt: “Run ‘whoami’ on my HTB VM.” → Output: user
-    - Prompt: “Run ‘fakecommand’ on my HTB VM.” → Output: bash: fakecommand: command not found
+- **Testing**:
+    - Prompt: “Run ‘whoami’ on my HTB VM.” → Output: `user`
+    - Prompt: “Run ‘fakecommand’ on my HTB VM.” → Output: `bash: fakecommand: command not found`
     - Verified logs:
     ```bash
     cat ~/Ella_AI/logs/ssh_executor.log
@@ -179,3 +179,4 @@ You are an AI assistant for Hack The Box pentesting. When asked to run a command
     2025-04-26 09:00:01 - INFO - Command output: user
     ```
 ![Testing Output](images/testing-output.png)
+*Screenshot: Chat output for our HTB AI model created in Open WebUI*
