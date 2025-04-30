@@ -180,3 +180,13 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
     ```
 ![Testing Output](images/testing-output.png)
 *Screenshot: Chat output for our HTB AI model created in Open WebUI*
+
+## Achievements
+- Clean Interface: Chat delivers only command outputs, with logs in ~/Ella_AI/logs/ssh_executor.log.
+- Robust Error Handling: Captures stderr for diagnostics (e.g., bash: fakecommand: command not found).
+- Performance: gpt-4o-mini ensures rapid responses, critical for HTB challenges.
+- HTB Relevance: Supports enumeration (e.g., netstat -tuln, ifconfig) for pentesting.
+
+## Next Steps
+- Integrate Hugging Face Transformers for adversarial prompt testing.
+- Implement LangChain for multi-step pentesting workflows (e.g., scan → enumerate).
