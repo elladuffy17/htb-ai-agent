@@ -188,5 +188,7 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
 - HTB Relevance: Supports enumeration (e.g., netstat -tuln, ifconfig) for pentesting.
 
 ## Next Steps
-- Integrate Hugging Face Transformers for adversarial prompt testing.
+- Add Exploit Capabilities
+- Simulate Real-World Red Team Attacks
 - Implement LangChain for multi-step pentesting workflows (e.g., scan → enumerate).
+- Integrate AI Safety with Hugging Face Transformers for adversarial prompt testing.
