@@ -189,6 +189,6 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
 
 ## Next Steps
 - Add Exploit Capabilities
-- Simulate Real-World Red Team Attacks
+- Simulate Real-World Red Team Attacks (manual chaining)
 - Implement LangChain for multi-step pentesting workflows (e.g., scan → enumerate).
 - Integrate AI Safety with Hugging Face Transformers for adversarial prompt testing.
