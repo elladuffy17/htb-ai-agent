@@ -10,7 +10,7 @@ This project builds an AI-powered pentesting assistant for Hack The Box Acadmey 
     - **Open WebUI**: Provides a chat interface with `gpt-4o-mini` (via OpenAI API) for tool-calling, upgraded from `llama3-groq-tool-use:8b` for speed.
     - **Python**: Powers `ssh_command_executor.py` (version 1.0.3) using `paramiko` for SSH.
     - **Ollama**: Previously served `llama3` at `http://host.docker.internal:11434`.
-- **Status**: Successfully executes commands, handles errors (e.g., `bash: fakecommand: command not found`), and delivers fast, clean chat outputs.
+- **Status**: Successfully executes commands, handles errors (e.g., `bash: fakecommand: command not found`), and delivers fast, clean chat outputs. The Sunday HTB challenge write-up is available [here](https://medium.com/@ellamlduffy/conquering-the-sunday-hack-the-box-challenge-b8bc1f9e8e37).
 
 ## Setup Steps
 ### 1. Parrot OS VM Configuration
@@ -188,7 +188,7 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
 - HTB Relevance: Supports enumeration (e.g., netstat -tuln, ifconfig) for pentesting.
 
 ## Next Steps
-- Add Exploit Capabilities
-- Simulate Real-World Red Team Attacks (manual chaining)
+- Add exploit capabilities as tools for our model.
+- Chain the Sunday attack (nmap → finger enumeration → brute-forcing) in the agent, testing on a local VM replicating Sunday’s setup.
 - Implement LangChain for multi-step pentesting workflows (e.g., scan → enumerate).
 - Integrate AI Safety with Hugging Face Transformers for adversarial prompt testing.
