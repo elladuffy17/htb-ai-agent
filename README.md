@@ -34,7 +34,7 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
   - **Purpose**: Connect the VM to the HTB network to assign it an HTB IP (e.g., `10.10.14.7`) for challenge access.
   - **Steps**:
     1. Sign up for an HTB account at `hackthebox.com`.
-    2. In the VM, download your OpenVPN configuration file (e.g., `academy-regular.ovpn`) from `https://academy.hackthebox.com/vpn` using a browser (e.g., Firefox in Parrot OS).
+    2. In the VM, download your OpenVPN configuration file (e.g., `academy-regular.ovpn` or `lab_elladuffy217.ovpn`) for the specified challenge you are playing. Since we are tackling the Sunday challenge, navigate to `https://app.hackthebox.com/machines/136` using a browser (e.g., Firefox in Parrot OS) to grab the OpenVPN file.
     3. Install OpenVPN in the VM:
     ```bash
     sudo apt update
