@@ -9,6 +9,7 @@ import paramiko
 import os
 import logging
 import re
+from typing import Tuple, Optional, Dict, List
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,7 +70,7 @@ class Tools:
             client.close()
             logger.debug("SSH connection closed")
     
-    def scan_ports(self, host: str, username: str, target: str) -> dict:
+    def scan_ports(self, host: str, username: str, target: str) -> Dict[str, str]:
         """
         Scan open ports on the remote host using nmap via SSH.
 
@@ -97,7 +98,7 @@ class Tools:
             logger.error(f"Port scan failed: {str(e)}")
             return {}
     
-    def enumerate_users(self, host: str, username: str, target: str, wordlist="/usr/share/seclists/Usernames/Names/names.txt") -> list:
+    def enumerate_users(self, host: str, username: str, target: str, wordlist="/usr/share/seclists/Usernames/Names/names.txt") -> List[str]:
         """
         Enumerate users on the remote host using finger via SSH.
 
@@ -147,6 +148,34 @@ class Tools:
                 logger.warning("No exploitable ports with finger service (79) found")
         else:
             logger.warning("Port scan failed or no ports found")
+
+    def detect_ssh_port(self, target_host: str, ssh_host: str, ssh_user: str) -> Optional[int]:
+        """
+        Detect the port running SSH on the target host using nmap.
+        
+        Args:
+            target_host (str): Target IP address
+            ssh_host (str): SSH host IP
+            ssh_user (str): SSH username
+        
+        Returns:
+            int: Port number where SSH is detected, or None if not found
+        """
+        logger.info(f"Detecting SSH port on {target_host}")
+        try:
+            nmap_cmd = f"nmap -p 22,22022,2222,22222 -sC -sV {target_host}"
+            output = self.ssh_command_executor(ssh_host, ssh_user, nmap_cmd)
+            ssh_ports = re.findall(r"(\d+)/tcp\s+open\s+ssh", output)
+            if ssh_ports:
+                port = int(ssh_ports[0])
+                logger.info(f"SSH detected on port: {port}")
+                return port
+            else:
+                logger.warning("No SSH port detected.")
+                return None
+        except Exception as e:
+            logger.error(f"Error detecting SSH port: {str(e)}")
+            return None
 
 if __name__ == "__main__":
     tools = Tools()

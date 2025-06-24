@@ -1,16 +1,31 @@
 # Hack The Box AI Pentesting Agent
 
-This project builds an AI-powered pentesting assistant for Hack The Box Acadmey challenges, using a Parrot OS VM, Dockerized Open WebUI, and a custom SSH command execution tool. The agent executes commands (e.g., `whoami`, `ifconfig`) on a remote VM via a clean chat interface, logging details separately, and supports my Penetration Tester path with enhanced performance using OpenAI’s `gpt-4o-mini`.
+This repository contains an AI-powered penetration testing agent designed to automate reconnaissance and attack chaining for Hack The Box (HTB) challenges. The project leverages advanced language models and security tools to enhance penetration testing workflows.
 
 ## Project Overview
-- **Goal**: Create a user-friendly AI agent to run pentesting commands on a Hack The Box VM, delivering raw outputs (e.g., `user` for `whoami`) while logging debug info (e.g., SSH connections) to a file.
-- **Tech Stack**:
-    - **Parrot OS VM**: Runs at `10.0.0.215` for command execution.
-    - **Docker**: Hosts Open WebUI (`ghcr.io/open-webui/open-webui:main`) with mounted tools, SSH key, and logs.
-    - **Open WebUI**: Provides a chat interface with `gpt-4o-mini` (via OpenAI API) for tool-calling, upgraded from `llama3-groq-tool-use:8b` for speed.
-    - **Python**: Powers `ssh_command_executor.py` (version 1.0.3) using `paramiko` for SSH.
-    - **Ollama**: Previously served `llama3` at `http://host.docker.internal:11434`.
-- **Status**: Successfully executes commands, handles errors (e.g., `bash: fakecommand: command not found`), and delivers fast, clean chat outputs. The Sunday HTB challenge write-up is available [here](https://medium.com/@ellamlduffy/conquering-the-sunday-hack-the-box-challenge-b8bc1f9e8e37).
+The HTB AI Pentesting Agent is built to tackle HTB challenges autonomously, with a focus on the Sunday machine. It integrates:
+  - **LangChain** for orchestrating attack sequences.
+  - **GPT-4o Mini** for intelligent decision-making.
+  - **Custom Python Tools** (e.g., `ssh_command_executor.py`) for secure command execution.
+  - **Dockerized Environment** for consistent deployment.
+  - **Parrot OS VM** for accessing HTB environments.
+  - **Open WebUI** for a web-based interface.
+The core notebook, `attack_chain.ipynb`, runs locally to demonstrate a pipeline that scans ports, enumerates SSH users, and prepares for brute-force attacks. Partial Open WebUI integration is in progress, with full pipeline automation planned.
+
+## Features
+  - **Port Scanning**: Uses `nmap` to identify open ports (e.g., 79 for finger, 22022 for SSH) on target machines.
+  - **User Enumeration**: Employs `finger-user-enum` to extract SSH-logged-in users (e.g., sammy, sunny) from the Sunday machine.
+  - **Attack Chaining**: Sequences reconnaissance and enumeration using LangChain's `RunnableSequence`.
+  - **Logging**: Captures detailed execution logs in `logs/attack_chain.log` for debugging.
+  - **AI Safety**: Plans include adversarial input detection and intent validation to prevent misuse.
+
+## Prerequisites
+  - **Python 3.8+**
+  - **LangChain**: Install with pip install langchain langchain-openai.
+  - **OpenAI API Key**: Set as an environment variable (OPENAI_API_KEY).
+  - **Docker**: For containerized setup (optional).
+  - **Parrot OS VM**: Configured with nmap, finger-user-enum, and SSH access.
+  - **HTB VPN**: Active connection to access target machines (e.g., 10.10.10.76).
 
 ## Setup Steps
 ### 1. Parrot OS VM Configuration
@@ -34,7 +49,7 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
   - **Purpose**: Connect the VM to the HTB network to assign it an HTB IP (e.g., `10.10.14.7`) for challenge access.
   - **Steps**:
     1. Sign up for an HTB account at `hackthebox.com`.
-    2. In the VM, download your OpenVPN configuration file (e.g., `academy-regular.ovpn` or `lab_elladuffy217.ovpn`) for the specified challenge you are playing. Since we are tackling the Sunday challenge, navigate to `https://app.hackthebox.com/machines/136` using a browser (e.g., Firefox in Parrot OS) to grab the OpenVPN file.
+    2. In the VM, download your OpenVPN configuration file (e.g., `academy-regular.ovpn` or `lab_elladuffy217.ovpn`) which is used to connect to the HTB network.
     3. Install OpenVPN in the VM:
     ```bash
     sudo apt update
@@ -47,7 +62,7 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
     ```
     5. Connect to the HTB VPN:
     ```bash
-    sudo openvpn ~/academy-regular.ovpn
+    sudo openvpn ~/lab_elladuffy217.ovpn
     ```
     6. Verify the connection:
     ```bash
@@ -73,6 +88,24 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
             - Find the line that says **PasswordAuthentication** and change its value to no.
              - Save the file and restart the SSH service: `sudo systemctl restart ssh`
 
+- **Install Required Tools**:
+  - Update the package list and install `nmap` and `finger-user-enum`:
+  ```bash
+  sudo apt update
+  sudo apt install nmap
+  wget http://pentestmonkey.net/tools/finger-user-enum/finger-user-enum-1.0.tar.gz
+  tar -xzf finger-user-enum-1.0.tar.gz
+  cd finger-user-enum-1.0
+  sudo mv finger-user-enum.pl /usr/local/bin/finger-user-enum
+  sudo chmod +x /usr/local/bin/finger-user-enum
+  sudo apt install libnet-finger-perl 
+  ```
+  - Install `seclists` for username wordlists:
+  ```bash
+  sudo apt install seclists
+  ```
+
+          
 - **Verification**: 
     - Tested SSH from the host:
     ```bash
@@ -141,20 +174,24 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
   ```
 
 ### 3. SSH Command Executor Tool
-- **Implementation**: Created `ssh_command_executor.py` to execute commands on the VM using `paramiko` for secure SSH connections, logging all actions to `/app/logs/ssh_executor.log`. The script handles stdout and stderr for accurate command outputs (e.g., `bash: fakecommand: command not found`) and prepends PATH for commands like `ifconfig` to ensure accessibility. See the full code in ssh_command_executor.py.
+- **Implementation**: The `ssh_command_executor.py` module executes commands on the VM using `paramiko` for secure SSH connections, logging all actions to /app/logs/ssh_executor.log. The script handles stdout and stderr for accurate command outputs (e.g., bash: fakecommand: command not found) and prepends PATH for commands like `ifconfig` to ensure accessibility. See the full code in `ssh_command_executor.py`.
+- **Open WebUI Integration**: The `ssh_execute_command` tool is configured in Open WebUI, allowing manual command execution (e.g., whoami) via the web interface.
 
 ### 4. Open WebUI Integration
-- **Tool Setup**: Added the `ssh_execute_command tool` in Open WebUI using the web interface:
-    1. Navigated to `http://localhost:3000` > Workspace > Tools.
-    2. Clicked the `+` button to create a new tool.
-    3. Filled in the tool details:
-        - **Tool Name**: `SSH Command Executor`
-        - **Tool ID**: `ssh_command_executor`
-        - **Tool Description**: `Executes commands on my remote HTB Parrot OS VM and returns the output, with logging.`
-    4. Pasted the contents of `ssh_command_executor.py` directly into the tool’s code editor.
-    5. Saved the tool. 
-![Tool Integration](images/tool-integration.png)
-*Screenshot: Open WebUI Tools page showing the setup of the SSH Command Executor tool.*
+- **Current State**: Open WebUI is integrated with the `ssh_execute_command` tool from `ssh_command_executor.py`. Full integration with `scan_ports` and `enumerate_users` is planned.
+- **Access**: Launch the WebUI by running the Docker command above, then access it at http://localhost:3000.
+- **Testing**:
+    - Prompt: “Run ‘whoami’ on my HTB VM.” → Output: `user`
+    - Prompt: “Run ‘fakecommand’ on my HTB VM.” → Output: `bash: fakecommand: command not found`
+    - Verified logs:
+    ```bash
+    cat ~/Ella_AI/logs/ssh_executor.log
+    # Example:
+    2025-04-26 09:00:01 - INFO - Executing command: PATH=$PATH:/sbin:/usr/sbin whoami
+    2025-04-26 09:00:01 - INFO - Command output: user
+    ```
+![Testing Output](images/testing-output.png)
+*Screenshot: Chat output for our HTB AI model created in Open WebUI*
 
 - **Model Setup**: Configured the AI model in Open WebUI to work with the tool:
     1. Navigated to `http://localhost:3000` > Workspace > Models.
@@ -182,13 +219,16 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
 *Screenshot: Chat output for our HTB AI model created in Open WebUI*
 
 ## Achievements
+- Automated Pipeline: Currently scans ports and enumerates users dynamically.
 - Clean Interface: Chat delivers only command outputs, with logs in ~/Ella_AI/logs/ssh_executor.log.
 - Robust Error Handling: Captures stderr for diagnostics (e.g., bash: fakecommand: command not found).
 - Performance: gpt-4o-mini ensures rapid responses, critical for HTB challenges.
 - HTB Relevance: Supports enumeration (e.g., netstat -tuln, ifconfig) for pentesting.
 
 ## Next Steps
-- Add exploit capabilities as tools for our model.
-- Chain the Sunday attack (nmap → finger enumeration → brute-forcing) in the agent, testing on a local VM replicating Sunday’s setup.
-- Implement LangChain for multi-step pentesting workflows (e.g., scan → enumerate).
-- Integrate AI Safety with Hugging Face Transformers for adversarial prompt testing.
+- Test new tools which dynamically detect SSH port and then brute-force the service
+- Complete Open WebUI integration for full attack chain.
+- Enhance AI safety with adversarial testing and intent validation.
+
+## Future Goals
+- Expand to other HTB machines with adaptive strategies.
