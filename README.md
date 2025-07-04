@@ -10,12 +10,14 @@ The HTB AI Pentesting Agent is built to tackle HTB challenges autonomously, with
   - **Dockerized Environment** for consistent deployment.
   - **Parrot OS VM** for accessing HTB environments.
   - **Open WebUI** for a web-based interface.
-The core notebook, `attack_chain.ipynb`, runs locally to demonstrate a pipeline that scans ports, enumerates SSH users, and prepares for brute-force attacks. Partial Open WebUI integration is in progress, with full pipeline automation planned.
+The core notebook, `attack_chain.ipynb` (v1.1.1), implements a legacy chain-based pipeline that scans ports, enumerates SSH users, and detects SSH ports. The new `react_agent.ipynb` is in development, introducing a ReAct agent for dynamic attack chaining, including SSH brute-forcing. Partial Open WebUI integration is in progress, with full pipeline automation planned.
 
 ## Features
   - **Port Scanning**: Uses `nmap` to identify open ports (e.g., 79 for finger, 22022 for SSH) on target machines.
   - **User Enumeration**: Employs `finger-user-enum` to extract SSH-logged-in users (e.g., sammy, sunny) from the Sunday machine.
   - **Attack Chaining**: Sequences reconnaissance and enumeration using LangChain's `RunnableSequence`.
+  - **SSH Port Detection**: Dynamically identifies SSH ports (e.g., 22022) using memory-based analysis from port scans.
+  - **ReAct Agent (In Development)**: Plans to implement a Reasoning + Action + Observation loop for adaptive attack chaining, including brute-force attempts.
   - **Logging**: Captures detailed execution logs in `logs/attack_chain.log` for debugging.
   - **AI Safety**: Plans include adversarial input detection and intent validation to prevent misuse.
 
@@ -174,7 +176,7 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
   ```
 
 ### 3. SSH Command Executor Tool
-- **Implementation**: The `ssh_command_executor.py` module executes commands on the VM using `paramiko` for secure SSH connections, logging all actions to /app/logs/ssh_executor.log. The script handles stdout and stderr for accurate command outputs (e.g., bash: fakecommand: command not found) and prepends PATH for commands like `ifconfig` to ensure accessibility. See the full code in `ssh_command_executor.py`.
+- **Implementation**: The `ssh_command_executor.py` module executes commands on the VM using `paramiko` for secure SSH connections, logging all actions to /app/logs/ssh_executor.log. The script handles stdout and stderr for accurate command outputs (e.g., bash: fakecommand: command not found) and prepends PATH for commands like `ifconfig` to ensure accessibility. See the full code in `ssh_command_executor.py` (v1.2.2).
 - **Open WebUI Integration**: The `ssh_execute_command` tool is configured in Open WebUI, allowing manual command execution (e.g., whoami) via the web interface.
 
 ### 4. Open WebUI Integration
@@ -219,16 +221,17 @@ _Note:_ Your VM’s IP will depend on your network settings (e.g., DHCP). Use th
 *Screenshot: Chat output for our HTB AI model created in Open WebUI*
 
 ## Achievements
-- Automated Pipeline: Currently scans ports and enumerates users dynamically.
-- Clean Interface: Chat delivers only command outputs, with logs in ~/Ella_AI/logs/ssh_executor.log.
-- Robust Error Handling: Captures stderr for diagnostics (e.g., bash: fakecommand: command not found).
-- Performance: gpt-4o-mini ensures rapid responses, critical for HTB challenges.
-- HTB Relevance: Supports enumeration (e.g., netstat -tuln, ifconfig) for pentesting.
+- **Automated Pipeline**: Currently scans ports and enumerates users dynamically.
+- **Clean Interface**: Chat delivers only command outputs, with logs in ~/Ella_AI/logs/ssh_executor.log.
+- **Robust Error Handling**: Captures stderr for diagnostics (e.g., bash: fakecommand: command not found).
+- **Memory-Based Detection**: Successfully implements memory-based SSH port detection, reducing redundant scans.
+- **Performance**: gpt-4o-mini ensures rapid responses, critical for HTB challenges.
+- **HTB Relevance**: Supports enumeration (e.g., netstat -tuln, ifconfig) for pentesting and SSH targeting for pentesting.
 
 ## Next Steps
-- Test new tools which dynamically detect SSH port and then brute-force the service
+- Complete `react_agent.ipynb` with a ReAct agent, integrating SSH port detection and brute-force capabilities.
 - Complete Open WebUI integration for full attack chain.
 - Enhance AI safety with adversarial testing and intent validation.
 
 ## Future Goals
-- Expand to other HTB machines with adaptive strategies.
+- Scale to other HTB machines with adaptive strategies based on ReAct agent insights.

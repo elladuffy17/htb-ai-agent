@@ -1,7 +1,7 @@
 """
 title: SSH Command Executor
 author: Ella Duffy
-version: 1.0.0
+version: 1.2.2
 description: Executes commands on my remote HTB Parrot OS VM and returns the output, with logging.
 """
 
@@ -27,9 +27,8 @@ logger = logging.getLogger(__name__)
 logger.info("Loading SSH Command Executor") #using logging module over print statements for flexibility and control
 
 class Tools:
-    def __init__(self):
-        self._cached_ports = None #Cache for scan_ports results
-        self.memory = memory or ConversationBufferMemory() #Initialize or use provided memory
+    def __init__(self, memory: ConversationBufferMemory = None):
+        self.memory = memory if memory is not None else ConversationBufferMemory() #Initialize or use provided memory
     
     def ssh_command_executor(self, host: str, username: str, command: str) -> str:
         """
@@ -96,8 +95,7 @@ class Tools:
                     port, service = match.groups()
                     ports[port] = service
             logger.info(f"Scanned ports: {ports}")
-            #Store these results in cache and memory
-            self._cached_ports = ports #cache the results
+            #Store these results in memory
             self.memory.save_context({"input": f"Scan ports on {target}"}, {"output": str(ports)})
             return ports
         except Exception as e:
@@ -158,9 +156,12 @@ class Tools:
         """
         logger.info(f"Detecting SSH port on {target}")
         try:
-            #Check LLM memory for previous SSH port detection
+            #Check LLM memory first
             memory_vars = self.memory.load_memory_variables({})
+            logger.info(f"Memory variables: {memory_vars}")
             memory_output = memory_vars.get("history", "")
+
+            #Look for previously detected SSH port
             match = re.search(r"SSH detected on port: (\d+)", memory_output)
             if match:
                 port = int(match.group(1))
@@ -168,38 +169,28 @@ class Tools:
                 self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"SSH detected on port: {port} (from memory)"})
                 return port
             
-            # Check memory for scan_ports results if no explicit SSH memory
-            scan_match = re.search(r"Scan ports on " + re.escape(target) + r".*output: '({.*})'", memory_output, re.DOTALL)
+            # Parse scan_ports memory to find potential SSH ports
+            scan_match = re.search(r"Human: Scan ports on " + re.escape(target) + r"\nAI: (.*)", memory_output, re.DOTALL)
             if scan_match:
-                ports_str = scan_match.group(1)
+                ports_str = scan_match.group(1).strip()
                 ports = ast.literal_eval(ports_str)
                 for port, service in ports.items():
-                    if "ssh" in service.lower():
-                        logger.info(f"SSH detected on port from memory scan: {port}")
+                    if service.lower() in ["ssh", "openssh"]: #Trust what was found by scan_port tool
+                        logger.info(f"SSH port {port} found in scan_ports memory with service {service}.")
                         self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"SSH detected on port: {port}"})
                         return int(port)
-                    
-            # Use cached scan_ports results if available
-            if self._cached_ports is not None:
-                for port, service in self._cached_ports.items():
-                    if "ssh" in service.lower():
-                        logger.info(f"SSH detected on cached port: {port}")
-                        self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"SSH detected on port: {port}"})
-                        return int(port)
-                for port in self._cached_ports.keys():
-                    if self._cached_ports[port] == "unknown" or "unknown" in self._cached_ports[port].lower():
-                        logger.info(f"Probing unknown service on cached port {port} for SSH.")
+                    elif service.lower() == "unknown":
+                        logger.info(f"Probing unknown service on memory port {port} for SSH.")
                         probe_cmd = f"nmap -p {port} -sC -sV {target}"
                         output = self.ssh_command_executor(host, username, probe_cmd)
                         if "ssh" in output.lower():
                             detected_port = int(port)
                             logger.info(f"SSH confirmed on probed port: {detected_port}")
                             self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"SSH detected on port: {detected_port}"})
-                            self._cached_ports[port] = "ssh"
                             return detected_port
             
-            # No memory or cache data, run fast SSH-specific scan on typical ports
-            logger.info("No cached or memory data, running fast nmap scan.")
+            # No memory run fast SSH-specific scan on typical ports
+            logger.info("No memory data, running fast nmap scan.")
             fast_scan_cmd = f"nmap -p 22,22022,2222,22222 -sC -sV {target}"
             output = self.ssh_command_executor(host, username, fast_scan_cmd)
             ssh_port = None
@@ -211,10 +202,6 @@ class Tools:
                     break
             if ssh_port:
                 self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"SSH detected on port: {ssh_port}"})
-                if self._cached_ports is None:
-                    self._cached_ports = {str(ssh_port): "ssh"}
-                elif str(ssh_port) not in self._cached_ports:
-                    self._cached_ports[str(ssh_port)] = "ssh"
                 return ssh_port
             else:
                 self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": "No SSH port detected."})
@@ -226,25 +213,9 @@ class Tools:
             self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"Error: {str(e)}"})
             return None
 
-
-        #try:
-        #    nmap_cmd = f"nmap -p 22,22022,2222,22222 -sC -sV {target}"
-        #    output = self.ssh_command_executor(host, username, nmap_cmd)
-        #    ssh_ports = re.findall(r"(\d+)/tcp\s+open\s+ssh", output)
-        #    if ssh_ports:
-        #        port = int(ssh_ports[0])
-        #        logger.info(f"SSH detected on port: {port}")
-        #        return port
-        #    else:
-        #        logger.warning("No SSH port detected.")
-        #        return None
-        #except Exception as e:
-        #    logger.error(f"Error detecting SSH port: {str(e)}")
-        #    return None
-        
     def main(self, host: str, username: str, target: str):
-        #logger.info(f"Starting attack chain on {target} via {host}")
-        #ports = self.scan_ports(host, username, target)
+        logger.info(f"Starting attack chain on {target} via {host}")
+        ports = self.scan_ports(host, username, target)
         #if ports:
         #    logger.info(f"Found ports: {ports}")
         #    if "79" in ports:
@@ -256,12 +227,15 @@ class Tools:
         #    logger.warning("Port scan failed or no ports found")
         
         #Testing the detect ssh port function
-        logger.info(f"Starting attack chain on {target} via {host}")
+        logger.info(f"Testing SSH port detection on {target} via {host}")
         ssh_port = self.detect_ssh_port(host, username, target)
         if ssh_port:
             logger.info(f"Found SSH: {ssh_port}")
         else:
-            logger.warning("No exploitable ports with finger service (79) found")
+            logger.warning("No SSH port detected")
+
+        logger.info("Run again to check memory functionality...")
+        ssh_port2 = self.detect_ssh_port(host, username, target)
 
 if __name__ == "__main__":
     tools = Tools()
