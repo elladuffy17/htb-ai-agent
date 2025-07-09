@@ -10,7 +10,7 @@ import os
 import logging
 import re
 from typing import Tuple, Optional, Dict, List
-from langchain.memory import ConversationBufferMemory
+from langchain_community.chat_message_histories import ChatMessageHistory
 import ast
 
 logging.basicConfig(
@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 logger.info("Loading SSH Command Executor") #using logging module over print statements for flexibility and control
 
 class Tools:
-    def __init__(self, memory: ConversationBufferMemory = None):
-        self.memory = memory if memory is not None else ConversationBufferMemory() #Initialize or use provided memory
+    def __init__(self, memory: ChatMessageHistory = None):
+        self.memory = memory if memory is not None else ChatMessageHistory() #Initialize or use provided memory
     
     def ssh_command_executor(self, host: str, username: str, command: str) -> str:
         """
@@ -96,11 +96,11 @@ class Tools:
                     ports[port] = service
             logger.info(f"Scanned ports: {ports}")
             #Store these results in memory
-            self.memory.save_context({"input": f"Scan ports on {target}"}, {"output": str(ports)})
+            self.memory.add_message({"role": "assistant", "content": f"Scanned ports on {target}: {ports}"})
             return ports
         except Exception as e:
             logger.error(f"Port scan failed: {str(e)}")
-            self.memory.save_context({"input": f"Scan ports on {target}"}, {"output": f"Error: {str(e)}"})
+            self.memory.add_message({"role": "assistant", "content": f"Port scan failed on {target}: {str(e)}"})
             return {}
     
     def enumerate_users(self, host: str, username: str, target: str, wordlist="/usr/share/seclists/Usernames/Names/names.txt") -> List[str]:
@@ -136,9 +136,11 @@ class Tools:
                                 users.add(user)
             users_list = sorted(list(users))
             logger.info(f"Refined SSH users: {users_list}")
+            self.memory.add_message({"role": "assistant", "content": f"Enumerated users on {target}: {users_list}"})
             return users_list
         except Exception as e:
             logger.error(f"User enumeration failed: {str(e)}")
+            self.memory.add_message({"role": "assistant", "content": f"User enumeration failed on {target}: {str(e)}"})
             return []
         
     
@@ -157,37 +159,39 @@ class Tools:
         logger.info(f"Detecting SSH port on {target}")
         try:
             #Check LLM memory first
-            memory_vars = self.memory.load_memory_variables({})
-            logger.info(f"Memory variables: {memory_vars}")
-            memory_output = memory_vars.get("history", "")
+            memory_content = "\n".join(msg["content"] for msg in self.memory.messages if "content" in msg)
+            logger.info(f"Checking memory... \n: {memory_content}")
 
             #Look for previously detected SSH port
-            match = re.search(r"SSH detected on port: (\d+)", memory_output)
+            match = re.search(r"SSH detected on port: (\d+)", memory_content)
             if match:
                 port = int(match.group(1))
                 logger.info(f"SSH port {port} retrieved from LLM memory.")
-                self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"SSH detected on port: {port} (from memory)"})
+                self.memory.add_message({"role": "assistant", "content": f"SSH detected on port: {port} (from memory)"})
                 return port
             
             # Parse scan_ports memory to find potential SSH ports
-            scan_match = re.search(r"Human: Scan ports on " + re.escape(target) + r"\nAI: (.*)", memory_output, re.DOTALL)
+            scan_match = re.search(r"Scanned ports on " + re.escape(target) + r":\s*({[^}]*})", memory_content)
             if scan_match:
                 ports_str = scan_match.group(1).strip()
-                ports = ast.literal_eval(ports_str)
-                for port, service in ports.items():
-                    if service.lower() in ["ssh", "openssh"]: #Trust what was found by scan_port tool
-                        logger.info(f"SSH port {port} found in scan_ports memory with service {service}.")
-                        self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"SSH detected on port: {port}"})
-                        return int(port)
-                    elif service.lower() == "unknown":
-                        logger.info(f"Probing unknown service on memory port {port} for SSH.")
-                        probe_cmd = f"nmap -p {port} -sC -sV {target}"
-                        output = self.ssh_command_executor(host, username, probe_cmd)
-                        if "ssh" in output.lower():
-                            detected_port = int(port)
-                            logger.info(f"SSH confirmed on probed port: {detected_port}")
-                            self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"SSH detected on port: {detected_port}"})
-                            return detected_port
+                try:
+                    ports = ast.literal_eval(ports_str)
+                    for port, service in ports.items():
+                        if service.lower() in ["ssh", "openssh"]: #Trust what was found by scan_port tool
+                            logger.info(f"SSH port {port} found in scan_ports memory with service {service}.")
+                            self.memory.add_message({"role": "assistant", "content": f"SSH detected on port: {port}"})
+                            return int(port)
+                        elif service.lower() == "unknown":
+                            logger.info(f"Probing unknown service on memory port {port} for SSH.")
+                            probe_cmd = f"nmap -p {port} -sC -sV {target}"
+                            output = self.ssh_command_executor(host, username, probe_cmd)
+                            if "ssh" in output.lower():
+                                detected_port = int(port)
+                                logger.info(f"SSH confirmed on probed port: {detected_port}")
+                                self.memory.add_message({"role": "assistant", "content": f"SSH detected on port: {detected_port}"})
+                                return detected_port
+                except (ValueError, SyntaxError) as e:
+                    logger.error(f"Failed to parse ports string '{ports_str}': {str(e)}")
             
             # No memory run fast SSH-specific scan on typical ports
             logger.info("No memory data, running fast nmap scan.")
@@ -201,16 +205,16 @@ class Tools:
                     logger.info(f"SSH detected on port: {ssh_port}")
                     break
             if ssh_port:
-                self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"SSH detected on port: {ssh_port}"})
+                self.memory.add_message({"role": "assistant", "content": f"SSH detected on port: {ssh_port}"})
                 return ssh_port
             else:
-                self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": "No SSH port detected."})
+                self.memory.add_message({"role": "assistant", "content": "No SSH port detected."})
                 logger.warning("No SSH port detected.")
                 return None
         
         except Exception as e:
             logger.error(f"Error detecting SSH port: {str(e)}")
-            self.memory.save_context({"input": f"Detect SSH port on {target}"}, {"output": f"Error: {str(e)}"})
+            self.memory.add_message({"role": "assistant", "content": f"Error detecting SSH port on {target}: {str(e)}"})
             return None
 
     def main(self, host: str, username: str, target: str):
