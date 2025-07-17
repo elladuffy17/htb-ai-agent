@@ -146,7 +146,7 @@ class Tools:
             logger.error(f"Unexpected error: {str(e)}")
             raise
 
-    def scan_ports(self, host: str, username: str, target: str) -> Dict[str, str]:
+    def scan_ports(self, host: str, username: str, target: str, port_range: str = "1-1000,22022") -> Dict[str, str]:
         """
         Scan open ports on the remote host using nmap via SSH.
 
@@ -154,12 +154,13 @@ class Tools:
             host (str): The IP address of the VM to SSH into (e.g., '10.0.0.215').
             username (str): The SSH username.
             target (str): The target IP to scan (e.g., '10.10.10.76').
+            port_range (str): The port range to scan with nmap.
 
         Returns:
             dict: Dictionary of port:service pairs.
         """
-        logger.info(f"Scanning open ports on {target}")
-        command = f"nmap -p1-1000,22022 {target} --max-retries 2 -Pn --open"
+        logger.info(f"Scanning open ports on {target} in the range {port_range}")
+        command = f"nmap -p{port_range} {target} --max-retries 2 -Pn --open"
         try:
             output = self.ssh_command_executor(host, username, command)
             ports = {}
@@ -369,6 +370,35 @@ class Tools:
             logger.error(f"SSH login failed: {str(e)}")
             self.memory.add_message({"role": "assistant", "content": f"SSH login to {target} as {target_username} failed: {str(e)}"})
             return {"status": "failed", "error": str(e)}
+
+    def enumerate_system(self, host: str, username: str, target: str, target_username: str, password: str, port: int = 22) -> Dict[str, str]:
+        """
+        Gather system information (e.g., uname, /etc/passwd, id) on the target after SSH login.port
+        
+        Args:
+            host (str): The IP address of the VM to SSH into (e.g., '10.0.0.215').
+            username (str): The SSH username for the host VM (e.g., 'user').
+            target (str): The target IP address to attack (e.g., '10.10.10.76').
+            target_username (str): The username to test logging into on the target (e.g., 'sunny').
+            password(str): Password to use for SSH login (e.g., 'password1').
+            port (int): The SSH port to target (default: 22).
+
+        Returns:
+            dict: Dictionary of commands and their corresponding outputs, wether that is success or an error
+    
+        """
+        logger.info(f"Enumerating system info on {target} as {target_username}")
+        commands = ["uname -a", "cat /etc/passwd", "id", "sudo -l"]
+        results = {}
+        for cmd in commands:
+            command = f"sshpass -p {password} ssh -o StrictHostKeyChecking=no -p {port} {target_username}@{target} {cmd}"
+            try:
+                output = self.ssh_command_executor(host, username, command)
+                results[cmd] = output
+            except Exception as e:
+                results[cmd] = f"Error: {str(e)}"
+        self.memory.add_message({"role": "assistant", "content": f"System enumeration on {target}: {results}"})
+        return results
 
     def list_wordlists(self, category: str) -> List[Dict]:
         logger.info(f"Listing {category} wordlists")
