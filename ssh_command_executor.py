@@ -2,7 +2,16 @@
 title: SSH Command Executor
 author: Ella Duffy
 version: 1.2.8
-description: Executes commands on my remote HTB Parrot OS VM with logging, retry logic, and enhanced wordlist metadata.
+description: Executes commands on my remote HTB Parrot OS VM with logging, retry logic, and enhanced wordlist metadata 
+and improved secuirty features.
+
+Security Features:
+- Input Validation: Ensures host, username, target, port, command, wordlist, and directory inputs are safe using regex and existence checks.
+- Command Whitelisting: Restricts execution to a predefined set of allowed commands (e.g., nmap, hydra) to prevent unauthorized actions.
+- Command Sanitization: Uses shlex.quote to escape all command arguments, mitigating injection attacks.
+- Dangerous Pattern Blocking: Detects and blocks commands with risky patterns (e.g., rm -rf, ; bash).
+- Timeout Enforcement: Limits command execution time to prevent resource exhaustion.
+- Enhanced Logging: Tracks security events (e.g., validation failures, command execution) for auditing.
 """
 
 import paramiko
@@ -11,9 +20,10 @@ import logging
 import time
 import re
 import json
+import ast
+import shlex
 from typing import Tuple, Optional, Dict, List
 from langchain_community.chat_message_histories import ChatMessageHistory
-import ast
 from contextlib import contextmanager
 
 logging.basicConfig(
@@ -35,6 +45,67 @@ with open("config.json", "r") as f:
 class Tools:
     def __init__(self, memory: ChatMessageHistory = None):
         self.memory = memory if memory is not None else ChatMessageHistory()
+        # SECURITY: Define allowed commands to prevent unauthorized execution
+        self.allowed_commands = {
+            "nmap", "finger-user-enum", "hydra", "sshpass", "whoami",
+            "uname", "cat", "id", "sudo", "ls", "find"
+        }
+        # SECURITY: Block commands with dangerous patterns to mitigate risks
+        self.dangerous_patterns = [
+            r"rm\s+-rf", r"dd\s+if=", r"mkfs", r">\s*/dev/", r"\|.*bash",
+            r";\s*bash", r"&.*bash", r"\$\(.*\)", r"`.*`"
+        ]
+    
+    def validate_inputs(self, host: str, username: str, target: str = None, target_username: str = None, password: str = None, port: int = None, command: str = None, wordlist: str = None, directory: str = None):
+        """Validate all inputs for tool methods."""
+        logger.debug(f"Validating inputs: host={host}, username={username}, target={target}, target_username={target_username}, port={port}, command={command}, wordlist={wordlist}, directory={directory}")
+        try:
+            # SECURITY: Validate IPv4 addresses (0-255 range per octet) with regex
+            ip_pattern = r"^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
+            if not re.match(ip_pattern, host):
+                raise ValueError(f"Invalid host IP: {host}")
+            if target and not re.match(ip_pattern, target):
+                raise ValueError(f"Invalid target IP: {target}")
+            # SECURITY: Validate usernames with safe pattern
+            username_pattern = r"^[a-zA-Z0-9_-]+$"
+            if not re.match(username_pattern, username):
+                raise ValueError(f"Invalid username: {username}")
+            if target_username and not re.match(username_pattern, target_username):
+                raise ValueError(f"Invalid target_username: {target_username}")
+            # SECURITY: Validate port range
+            if port and (port < 1 or port > 65535): #Note: Ports 0 through 1023 are defined as well-known ports, registered ports are from 1024 to 49151 and the remainder of the ports from 49152 to 65535 can be used dynamically by applications.
+                raise ValueError(f"Invalid port: {port}")
+            # SECURITY: Validate command safety
+            if command and not self.validate_command(command):
+                raise ValueError(f"Unsafe command: {command}")
+            if wordlist:
+                check_command = f"ls {shlex.quote(wordlist)}"
+                result = self.ssh_command_executor(host, username, check_command)
+                if "No such file" in result:
+                    raise ValueError(f"Wordlist not found: {wordlist}")
+            # SECURITY: Prevent directory traversal
+            if directory:
+                if ".." in directory or "/" not in directory:
+                    raise ValueError(f"Invalid directory: {directory}")
+            logger.debug("All inputs validated successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Input validation failed: {str(e)}")
+            raise
+
+    def validate_command(self, command: str) -> bool:
+        """Validate that the command is safe to execute."""
+        # SECURITY: Check if command is in allowed list and lacks dangerous patterns
+        command_start = command.split()[0] if command else ""
+        if not any(command_start == cmd or command.startswith(f"{cmd} ") for cmd in self.allowed_commands):
+            logger.error(f"Command '{command_start}' not in allowed list: {self.allowed_commands}")
+            return False
+        for pattern in self.dangerous_patterns:
+            if re.search(pattern, command, re.IGNORECASE):
+                logger.error(f"Dangerous pattern detected in command: {pattern}")
+                return False
+        logger.debug(f"Command validation passed: {command}")
+        return True
 
     @contextmanager
     def ssh_client(self, host: str, username: str, timeout: int = 300):
@@ -160,7 +231,8 @@ class Tools:
             dict: Dictionary of port:service pairs.
         """
         logger.info(f"Scanning open ports on {target} in the range {port_range}")
-        command = f"nmap -p{port_range} {target} --max-retries 2 -Pn --open"
+        command = f"nmap -p{shlex.quote(port_range)} {shlex.quote(target)} --max-retries 2 -Pn --open"
+        self.validate_inputs(host, username, target=target, command=command)
         try:
             output = self.ssh_command_executor(host, username, command)
             ports = {}
@@ -192,7 +264,8 @@ class Tools:
         """
         logger.info(f"Enumerating users on {target} with wordlist {wordlist}")
         wordlist = wordlist or CONFIG["wordlists"]["usernames"][0]["path"]
-        command = f"finger-user-enum -U {wordlist} -t {target}"
+        command = f"finger-user-enum -U {shlex.quote(wordlist)} -t {shlex.quote(target)}"
+        self.validate_inputs(host, username, target=target, wordlist=wordlist, command=command)
         try:
             output = self.ssh_command_executor(host, username, command)
             users = set()
@@ -233,6 +306,7 @@ class Tools:
         Returns:
             int: Port number where SSH is detected, or None if not found
         """
+        self.validate_inputs(host, username, target=target)
         logger.info(f"Detecting SSH port on {target}")
         try:
             memory_content = "\n".join(msg["content"] for msg in self.memory.messages if "content" in msg)
@@ -256,7 +330,8 @@ class Tools:
                             return int(port)
                         elif service.lower() == "unknown":
                             logger.info(f"Probing unknown service on memory port {port} for SSH.")
-                            probe_cmd = f"nmap -p {port} -sC -sV {target}"
+                            probe_cmd = f"nmap -p {shlex.quote(port)} -sC -sV {shlex.quote(target)}"
+                            self.validate_inputs(host, username, target=target, command=probe_cmd)
                             output = self.ssh_command_executor(host, username, probe_cmd)
                             if "ssh" in output.lower():
                                 detected_port = int(port)
@@ -267,7 +342,8 @@ class Tools:
                     logger.error(f"Failed to parse ports string '{ports_str}': {str(e)}")
             
             logger.info("No memory data, running fast nmap scan.")
-            fast_scan_cmd = f"nmap -p 22,22022,2222,22222 -sC -sV {target}"
+            fast_scan_cmd = f"nmap -p 22,22022,2222,22222 -sC -sV {shlex.quote(target)}"
+            self.validate_inputs(host, username, target=target, command=fast_scan_cmd)
             output = self.ssh_command_executor(host, username, fast_scan_cmd)
             ssh_port = None
             for line in output.splitlines():
@@ -304,16 +380,16 @@ class Tools:
         Returns:
             dict: Dictionary of username:password pairs that succeed.
         """
-        
         if not target_username:
             logger.warning(f"No target username provided for Hydra attack on {target}")
             self.memory.add_message({"role": "assistant", "content": f"No target username provided for Hydra attack on {target}"})
             return {}
         logger.info(f"Starting Hydra attack on {target} for {target_username} with port {port}")
-        logger.info(f"Set timeout to {CONFIG['hydra_timeout']} seconds for Hydra command")
 
         # Run Hydra
-        command = f"hydra -l {target_username} -P {password_file} -I {protocol}://{target} -s {port}"
+        port_str = str(port)
+        command = f"hydra -l {shlex.quote(target_username)} -P {shlex.quote(password_file)} -I {shlex.quote(protocol)}://{shlex.quote(target)} -s {shlex.quote(port_str)}"
+        self.validate_inputs(host, username, target=target, target_username=target_username, wordlist=password_file, port=port, command=command)
         try:
             output = self.ssh_command_executor(host, username, command, timeout=CONFIG["hydra_timeout"])
             credentials = {}
@@ -357,9 +433,9 @@ class Tools:
                 - "output": Output of command if successful (e.g., 'sammy').
                 - "error": Error message if login fails (e.g., 'Authentication failed').
         """
-        
         logger.info(f"Attempting SSH login to {target} as {target_username} on port {port}")
-        command = f"sshpass -p {password} ssh -o StrictHostKeyChecking=no -p {port} {target_username}@{target} whoami"
+        command = f"sshpass -p {shlex.quote(password)} ssh -o StrictHostKeyChecking=no -p {shlex.quote(str(port))} {shlex.quote(target_username)}@{shlex.quote(target)} whoami"
+        self.validate_inputs(host, username, target=target, target_username=target_username, password=password, port=port, command=command)
         try:
             output = self.ssh_command_executor(host, username, command, timeout=300)
             result = {"status": "success", "output": output}
@@ -391,7 +467,8 @@ class Tools:
         commands = ["uname -a", "cat /etc/passwd", "id", "sudo -l"]
         results = {}
         for cmd in commands:
-            command = f"sshpass -p {password} ssh -o StrictHostKeyChecking=no -p {port} {target_username}@{target} {cmd}"
+            command = f"sshpass -p {shlex.quote(password)} ssh -o StrictHostKeyChecking=no -p {shlex.quote(str(port))} {shlex.quote(target_username)}@{shlex.quote(target)} {shlex.quote(cmd)}"
+            self.validate_inputs(host, username, target=target, target_username=target_username, password=password, port=port, command=command)
             try:
                 output = self.ssh_command_executor(host, username, command)
                 results[cmd] = output
